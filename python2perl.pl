@@ -1,5 +1,6 @@
 #!/usr/bin/perl -w
 $indentation = "false";
+$comma = "false";
 %array = ();
 if (@ARGV == 1) {
     #print $ARGV[0];
@@ -13,15 +14,15 @@ else {
         &process_line ($line);
     }
 }
-#In case the last "}" has not been printed when the whole code is finished
-print "}\n" if ($indentation eq "true");
+#In case the last "}" has not been printed when the whole python code is end
+print "}\n" if $indentation eq "true";
+#print "print \"\\n\";\n" if $comma eq "true";
 
 
 sub process_line() {
     my $line = $_[0];
-    $line =~ s/\t/    /g;
-    #print "\$indentation = $indentation\n";
     # Deal with the indentation problem
+    $line =~ s/\t/    /g;
     if ($indentation eq "true") {
         #print "here!!\n";
         $line =~ /^(\s*)(.*)/;
@@ -63,15 +64,14 @@ sub process_line() {
 		# so we need to add it explicitly to the Perl print statement
 		#print "print \"$1\", \"\\n\";\n";
 		print "$1print \"$2\\n\";\n";
+		$comma = "false";
 	}
 	elsif ($line =~ /^(\s*)print\s*"(.*)"\s*%\s*(\w+)\s*$/) {
 		# print with %, format printing:
 		print "$1printf \(\"", $2, "\\n\", ", &translate_expression($3), "\);\n";
+		$comma = "false";
 	}
 	elsif ($line =~ /^(\s*)sys.stdout.write\("(.*)"\)\s*$/) {
-		# Python's print print a new-line character by default
-		# so we need to add it explicitly to the Perl print statement
-		#print "print \"$1\", \"\\n\";\n";
 		print "$1print \"$2\";\n";
 	}
 	#subset 1:
@@ -89,8 +89,10 @@ sub process_line() {
 	elsif ($line =~ /^(\s*)print\s*(\w*)\s*([\+\-\*\/]\s*(\w*)\s*)+$/) {
 		# Handling direct printing with variable
 		# Note the print format is slightly different comparing to that of single print.
+		#print "here\n";
 		chomp $line;
 		&translate_print($line);
+		$comma = "false";
 	}
 #=cut
     # subset 2:
@@ -123,7 +125,7 @@ sub process_line() {
 		$indentation = "true";
         push @last_indentation, $start_space;
 	}
-	# Handling for loop
+	# Handling for-loop
 	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*range\((.+),\s*(.+)\):\s*$/) {
 	    $indentation = "true";
 	    push @last_indentation, $1;
@@ -141,11 +143,13 @@ sub process_line() {
 	    print "$1", "$the_line;\n";
 	}
 	# Subset 4:
+	# for-loop with sys.stdin
 	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*sys.stdin:\s*$/) {
 	    $indentation = "true";
 	    push @last_indentation, $1;
 	    print "$1foreach \$$2 (<STDIN>) {\n";
 	}
+	# append string
 	elsif ($line =~ /^(\s*)(\w+).append\((\w+)\)\s*$/) {
 	    print "$1push \@$2, \$$3;\n";
 	}
@@ -153,15 +157,23 @@ sub process_line() {
 	
     # Python print with , at the end of line
 	elsif ($line =~ /^(\s*)print\s*(.*),\s*$/) {
-	    my $variable = "";
-        $variable = &translate_expression($2) if ($2);
-		print "$1print $variable;", "\n";
+	    #print "here!\,\n";
+	    my @variable = "";
+        @variable = &translate_expression($2) if ($2 ne "");
+		print "$1print ", "@variable;\n";
+		$comma = "true";
 	}
 	# just print variable or non directly
 	elsif ($line =~ /^(\s*)print\s*(.*)\s*$/) {
-	    my $variable = "";
-        $variable = &translate_expression($2) if ($2);
-		print "$1print \"$variable\\n\";\n";
+	    #print "here!\n";
+	    my @variable = "";
+	    my $suffix = "\"\\n\";\n";
+	    if ($2 ne "") {
+            @variable = &translate_expression($2);
+            $suffix = ", \"\\n\";\n";
+        }
+		print "$1print @variable", $suffix;
+		$comma = "false";
 	}
 	elsif ($line =~ /^\s*import.*/){
 	    ;
@@ -206,36 +218,49 @@ sub translate_line(){
 sub translate_expression(){
     my $line = $_[0];
     # If there is no space between operators and variables or numeric values.  
-    $line =~ s/(\w)([=+\-*\/><%^&]+)/$1 $2 /g;
+    $line =~ s/([=+\-*\/|><%^&~]+)(\w)/ $1 $2/g;
     $line =~ s/\s+/ /g;     #Substitutes the concatenate spaces with one space.
     $line =~ s/^\ //;       #Delete the starting space.
     $line =~ s/\ $//;       #Delete the ending space.
     #print "$line\n";
     my @string = split (' ', $line);
     # Lots of possibilities.
-    foreach my $variable (@string) {
-        if ($variable =~ /^(int|float|double)\((.*)\)/){
-            #print $variable, "\n";
-            $variable = &handling_cast($variable);
-            #print $variable, "\n";
+    return &translate_single_expression($string[0]) if @string == 1;
+    foreach my $expression (@string) {
+        $expression = &translate_single_expression($expression);
+    }
+    return @string;
+}
+
+sub translate_single_expression() {
+    my $expression = $_[0];
+    if ($expression =~ /^(int|float|double)\((.*)\)/){
+        #print $variable, "\n";
+        $expression = &handling_cast($expression);
+        #print $variable, "\n";
+    }
+    if ($expression =~ /^len\((.+)\)$/) {
+        if($array{$1}) {
+    	    $expression = "\@$1";
         }
-        if ($variable =~ /^len\((.+)\)$/) {
-            if($array{$1}) {
-	    	    $variable = "\@$1";
-	        }
-    	    else {
-	            $variable = "length(\$$1)";
-	        }
-        }
-        elsif ($variable =~ /^[a-zA-z]\w*$/) {
-            $variable = "\$".$variable;
-        }
-        elsif ($variable =~ /^\w+\[(\w+)\]/) {
-            $variable =~ s/([a-zA-Z]\w*)/\$$1/g;
+	    else {
+            $expression = "length(\$$1)";
         }
     }
-    return $string[0] if @string == 1;
-    return @string;
+    # variable
+    elsif ($expression =~ /^[a-zA-Z]\w*$/) {
+        $expression = "\$".$expression;
+    }
+    # list
+    elsif ($expression =~ /^\w+\[(\w+)\]/) {
+        $expression =~ s/([a-zA-Z]\w*)/\$$1/g;
+    }
+    # python operator <>
+    elsif ($expression eq "<>") {
+        $expression = "<=>";
+    }
+    #print $expression, "\n";
+    return $expression;
 }
 
 sub translate_print(){

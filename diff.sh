@@ -6,11 +6,11 @@ cd $path
 for file in *
 do
     #echo "$file"
-    if [[ "$file" =~ .pl$ ]]
+    if [[ "$file" =~ .py$ ]]
     then
-        file_name=`echo "$file" | sed 's/.pl//'`
-        ../python2perl.pl < "$file_name.py" > "$file_name""_temp.pl" || continue
-        perl "$file_name.pl" > 1.txt
+        file_name=`echo "$file" | sed 's/.py//'`
+        perl /home/ashnh/Desktop/COMP9041/Assignment_1/python2perl.pl < "$file_name.py" > "$file_name""_temp.pl" || continue
+        python "$file_name.py" > 1.txt
         perl "$file_name""_temp.pl" > 2.txt
         if diff 1.txt 2.txt > /dev/null;
         then
@@ -21,5 +21,5 @@ do
         fi
     fi
 done
-rm 1.txt || continue
-rm 2.txt || continue
+rm 1.txt || true
+rm 2.txt || true
