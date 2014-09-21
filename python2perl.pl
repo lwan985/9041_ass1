@@ -1,5 +1,6 @@
 #!/usr/bin/perl -w
 $indentation = "false";
+%array = ();
 if (@ARGV == 1) {
     #print $ARGV[0];
     open ($F, $ARGV[0]);
@@ -37,8 +38,7 @@ sub process_line() {
             $count2 = $last_indentation[-1] =~ tr/ //;
         }
     }
-    #Subset 0:
-	if ($line =~ /^#!/ && $. == 1) {
+    if ($line =~ /^#!/ && $. == 1) {
 		# translate #! line 
 		print "#!/usr/bin/perl -w\n";
 	}
@@ -46,11 +46,33 @@ sub process_line() {
 		# Blank & comment lines can be passed unchanged
 		print $line;
 	}
+    # Higher priorities:
+    # sys.stdin.readlines()
+    elsif ($line =~ /(\s*)(\w*)\s*=\s*sys.stdin.readlines\(\)\s*$/) {
+		print "$1\@$2 = (<STDIN>);\n";
+		++$array{$2};
+	}
+=pod
+	# len()
+    elsif ($line =~ /(\s*)(\w*)\s*=\s*len\((.*)\)\s*$/) {
+        if($array{$3}) {
+		    print "$1\$$2 = \@$3;\n";
+	    }
+	    else {
+	        print "$1\$$2 = length(\$$3);\n";
+	    }
+	}
+=cut
+    #Subset 0:
 	elsif ($line =~ /^(\s*)print\s*"(.*)"\s*$/) {
 		# Python's print print a new-line character by default
 		# so we need to add it explicitly to the Perl print statement
 		#print "print \"$1\", \"\\n\";\n";
 		print "$1print \"$2\\n\";\n";
+	}
+	elsif ($line =~ /^(\s*)print\s*"(.*)"\s*%\s*(\w+)\s*$/) {
+		# print with %, format printing:
+		print "$1printf \(\"", $2, "\\n\", ", &translate_expression($3), "\);\n";
 	}
 	elsif ($line =~ /^(\s*)sys.stdout.write\("(.*)"\)\s*$/) {
 		# Python's print print a new-line character by default
@@ -59,20 +81,6 @@ sub process_line() {
 		print "$1print \"$2\";\n";
 	}
 	#subset 1:
-=pod
-	elsif ($line =~ /^\s*(\w*)\s*=\s*([0-9]*)\s*$/) {
-		# Handling simple numarical value or variable assignment
-		print "\$"."$1 = $2;\n";
-	}
-	#elsif ($line =~ /^\s*(\w*)\s*=\s*(\w*)\s*(([\+\-\*\/]+)\s*(\w*)\s*)$/) {
-	elsif ($line =~ /^\s*(\w*)\s*[\+\-\*\/]?=\s*([0-9]*)\s*([\+\-\*\/]\s*([0-9]*)\s*)*$/) {
-	    # Handling multiple numaric value assignment with +-*/
-	    # Handling += -= *= /= as well
-	    chomp $line;
-		print "\$"."$line;\n";
-	}
-=cut
-	#elsif ($line =~ /^\s*(\w*)\s*[\+\-\*\/]?=\s*(\w*)\s*([\+\-\*\/]\s*(\w*)\s*)*$/) {
 	elsif ($line =~ /^\s*(\w*)\s*[\+\-\*\/]?=.*$/) {
 	    # Handling multiple numaric value and variable assignment with +-*/
 	    # Handling += -= *= /= as well
@@ -203,14 +211,17 @@ sub translate_expression(){
             $variable = &handling_cast($variable);
             #print $variable, "\n";
         }
-        if ($variable =~ /^[a-zA-z]\w*$/) {
+        if ($variable =~ /^len\((.+)\)$/) {
+            if($array{$1}) {
+	    	    $variable = "\@$1";
+	        }
+    	    else {
+	            $variable = "length(\$$1)";
+	        }
+        }
+        elsif ($variable =~ /^[a-zA-z]\w*$/) {
             $variable = "\$".$variable;
         }
-        
-        elsif ($variable =~ /[\=\-\*\/]/) {
-            
-        }
-        #$variable = "\ ".$variable."\ " if $variable =~ /^[\=\+\-\*\/]+$/;
     }
     return @string;
 }
