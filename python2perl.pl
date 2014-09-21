@@ -24,9 +24,10 @@ sub process_line() {
     # Deal with the indentation problem
     if ($indentation eq "true") {
         #print "here!!\n";
-        $line =~ /^(\s*)/;
+        $line =~ /^(\s*)(.*)/;
         my $now_indentation = $1;
         my $count1 = $now_indentation =~ tr/ //;
+        $count1 = 0 if (!$2);
         my $count2 = $last_indentation[-1] =~ tr/ //;
         while ($count1 <= $count2) {
             print "$last_indentation[-1]}", "\n";
@@ -52,17 +53,10 @@ sub process_line() {
 		print "$1\@$2 = (<STDIN>);\n";
 		++$array{$2};
 	}
-=pod
-	# len()
-    elsif ($line =~ /(\s*)(\w*)\s*=\s*len\((.*)\)\s*$/) {
-        if($array{$3}) {
-		    print "$1\$$2 = \@$3;\n";
-	    }
-	    else {
-	        print "$1\$$2 = length(\$$3);\n";
-	    }
-	}
-=cut
+	# No initialisation is needed for array in perl.
+	elsif ($line =~ /^\s*(\w+)\s*=\s*\[\]\s*/){
+	    ++$array{$1};
+	}   
     #Subset 0:
 	elsif ($line =~ /^(\s*)print\s*"(.*)"\s*$/) {
 		# Python's print print a new-line character by default
@@ -130,7 +124,7 @@ sub process_line() {
         push @last_indentation, $start_space;
 	}
 	# Handling for loop
-	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*range\((.+),\s*(.+)\):$/) {
+	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*range\((.+),\s*(.+)\):\s*$/) {
 	    $indentation = "true";
 	    push @last_indentation, $1;
 	    #my $num = $4 - 1;
@@ -146,16 +140,30 @@ sub process_line() {
 	    }
 	    print "$1", "$the_line;\n";
 	}
+	# Subset 4:
+	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*sys.stdin:\s*$/) {
+	    $indentation = "true";
+	    push @last_indentation, $1;
+	    print "$1foreach \$$2 (<STDIN>) {\n";
+	}
+	elsif ($line =~ /^(\s*)(\w+).append\((\w+)\)\s*$/) {
+	    print "$1push \@$2, \$$3;\n";
+	}
 	
-
+	
+    # Python print with , at the end of line
+	elsif ($line =~ /^(\s*)print\s*(.*),\s*$/) {
+	    my $variable = "";
+        $variable = &translate_expression($2) if ($2);
+		print "$1print $variable;", "\n";
+	}
 	# just print variable or non directly
 	elsif ($line =~ /^(\s*)print\s*(.*)\s*$/) {
 	    my $variable = "";
-        $variable = "\$$2" if ($2);
+        $variable = &translate_expression($2) if ($2);
 		print "$1print \"$variable\\n\";\n";
 	}
 	elsif ($line =~ /^\s*import.*/){
-	    #next;
 	    ;
 	}
 	#else handling:
@@ -222,7 +230,11 @@ sub translate_expression(){
         elsif ($variable =~ /^[a-zA-z]\w*$/) {
             $variable = "\$".$variable;
         }
+        elsif ($variable =~ /^\w+\[(\w+)\]/) {
+            $variable =~ s/([a-zA-Z]\w*)/\$$1/g;
+        }
     }
+    return $string[0] if @string == 1;
     return @string;
 }
 
