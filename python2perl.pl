@@ -1,6 +1,7 @@
 #!/usr/bin/perl -w
 $indentation = "false";
 $comma = "false";
+$no_need_newline = "false";
 %array = ();
 if (@ARGV == 1) {
     #print $ARGV[0];
@@ -25,8 +26,8 @@ sub process_line() {
 		print "#!/usr/bin/perl -w\n";
 		return;
 	}
-	elsif ($line =~ /^\s*#/ || $line =~ /^\s*$/) {
-		# Blank & comment lines can be passed unchanged
+	elsif ($line =~ /^\s*#/) {
+		# comment lines can be passed unchanged
 		print $line;
 		return;
 	}
@@ -34,7 +35,7 @@ sub process_line() {
     my $line = $_[0];
     # Save the tail comment and print back at the end of whole process
     $line =~ s/(\s*#.*)$//;
-    my $comment = $1;
+    $comment = $1;
     # Deal with the indentation problem
     $line =~ s/\t/    /g;
     if ($indentation eq "true") {
@@ -54,9 +55,14 @@ sub process_line() {
             $count2 = $last_indentation[-1] =~ tr/ //;
         }
     }
+    if ($line =~ /^\s*$/) {
+		# Blank lines can be passed unchanged
+		print $line;
+		return;
+	}
     # Higher priorities:
     # sys.stdin.readlines()
-    if ($line =~ /(\s*)(\w*)\s*=\s*sys.stdin.readlines\(\)\s*$/) {
+    elsif ($line =~ /(\s*)(\w*)\s*=\s*sys.stdin.readlines\(\)\s*$/) {
 		print "$1\@$2 = (<STDIN>);";
 		++$array{$2};
 	}
@@ -64,7 +70,13 @@ sub process_line() {
 	elsif ($line =~ /^\s*(\w+)\s*=\s*\[\]\s*/){
 	    ++$array{$1};
 	    return if !$comment;
-	}  
+	}
+	# Multiple command in one line:
+	elsif (!($line =~ /:/) && $line =~ /(\s*)\S+\s*;\s*\S+/){
+        chomp $line;
+        &translate_line($line, $1);
+        $no_need_newline = "true";
+	}
     # Handling print & Subset 0:
     # print with "", just leave it to simple hanling.
 	elsif ($line =~ /^(\s*)print\s*"(.*)"\s*$/) {
@@ -105,7 +117,7 @@ sub process_line() {
 	}
     # subset 2:
     elsif ($line =~ /^\s*(if|while|elif|else if).*:/) {
-		# Handling if statement
+		# Handling statement
 		chomp $line;
 		my @condition = split (':', $line);
 		#$condition[0] =~ s/(\s*)(if|while|elif|else if)\s*\(?(.+)\):/$3/;
@@ -118,9 +130,12 @@ sub process_line() {
 		my @statement = &translate_expression($condition[0]);
 		print "$start_space", "$clause \(", "@statement", "\) {";
 		#print "$start_space", &translate_expression($condition[1]), ";\n";
+		# Little trick, in case the condition[1] is only spaces (\s*).
+		$condition[1] =~ s/(\s*)// if $condition[1];
 		if ($condition[1]) {
 		    print "\n";
 		    print &translate_line($condition[1], $start_space);
+		    #print "$start_space", "#\n#$start_space}";
 		    print "$start_space", "}";
 		}
 		else {
@@ -138,11 +153,22 @@ sub process_line() {
         push @last_indentation, $start_space;
 	}
 	# Handling for-loop
-	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*range\((.+),\s*(.+)\):\s*$/) {
-	    $indentation = "true";
-	    push @last_indentation, $1;
-	    #my $num = $4 - 1;
-	    print "$1foreach \$$2 (", &translate_expression($3), "..", &second_range($4), ") {";
+	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*range\((.+),\s*(.+)\):.*$/) {
+	    # Handling statement
+		chomp $line;
+		my @condition = split (':', $line);
+		my $start_space = $1;
+		print "$1foreach \$$2 (", &translate_expression($3), "..", &second_range($4), ") {";
+		if ($condition[1]) {
+		    print "\n";
+		    print &translate_line($condition[1], $start_space);
+		    #print "$start_space", "#\n#$start_space}";
+		    print "$start_space", "}";
+		}
+		else {
+		    $indentation = "true";
+	        push @last_indentation, $start_space;
+		}
 	}
 	# Handling break and continue
 	elsif ($line =~ /^(\s*)(break|continue)\s*$/) {
@@ -177,6 +203,10 @@ sub process_line() {
 		print "#$line";
 	}
 	print $comment if $comment;
+	if ($no_need_newline eq "true") {
+	    $no_need_newline = "false";
+	    return;
+	}
 	print "\n";
 }
 
@@ -198,11 +228,24 @@ sub second_range(){
 sub translate_line(){
     my $line = $_[0];
     my $start_space = $_[1];
+    $line =~ s/;\s*$//;
     my @expressions = split (';', $line);
     foreach (@expressions) {
         if ($_ =~ /^\s*print/) {
             $_ =~ s/^\s*//;
             &translate_print($_, "$start_space    ");
+        }
+        elsif ($_ =~ /sys.stdout.write\((.+)\)/) {
+            #print "matched\n";
+            my $string = $1;
+            #print $_, "\n";
+            if ($string =~ /\"(\w+)\"/) {
+                print "$start_space    ", "print \"$1\";\n";
+            }
+            #.."
+            else{
+                print "$start_space    ", "print \$$string;\n";
+            }
         }
         else {
             my @result = &translate_expression($_);
@@ -211,9 +254,16 @@ sub translate_line(){
     }
 }
 
-sub translate_expression(){
+sub translate_string() {
+    my $line = $_[0];
+}
+
+sub translate_expression() {
     my $line = $_[0];
     #print $line, "\n";
+    #if ($line =~ /\".*\"/) {
+    #    return &translate_string($line);
+    #}
     # If there is no space between operators and variables or numeric values.  
     $line =~ s/([=+\-*\/|><%^&~]+)(\w)/ $1 $2/g;
     $line =~ s/\s+/ /g;     #Substitutes the concatenate spaces with one space.
@@ -293,8 +343,17 @@ sub translate_print(){
 	    print "$start_space", $prefix, " \"\\n\";";
 	    return;
 	}
-	# Else, print every expression.
+	# Else, print the print expression.
 	print "$start_space", $prefix, "@code", ", \"\\n\";";
+	# Little trick here!!!
+	# If the print is coming from tail commmand not from a single line itself,
+	# then add an new line. As normal expression handler will automatically add \n
+	# Damn bug!
+	if ($comment) {
+	    print $comment;
+	    $comment = "";
+	}
+	print "\n" if $_[1];
 }
 
 sub handling_cast() {
