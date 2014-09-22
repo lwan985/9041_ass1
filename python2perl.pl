@@ -20,7 +20,20 @@ print "}\n" if $indentation eq "true";
 
 
 sub process_line() {
+    if ($line =~ /^#!/ && $. == 1) {
+		# translate #! line 
+		print "#!/usr/bin/perl -w\n";
+		return;
+	}
+	elsif ($line =~ /^\s*#/ || $line =~ /^\s*$/) {
+		# Blank & comment lines can be passed unchanged
+		print $line;
+		return;
+	}
+	# Else, should be an normal line, lots of choices.
     my $line = $_[0];
+    $line =~ s/(\s*#.*)$//;
+    my $comment = $1;
     # Deal with the indentation problem
     $line =~ s/\t/    /g;
     if ($indentation eq "true") {
@@ -40,36 +53,29 @@ sub process_line() {
             $count2 = $last_indentation[-1] =~ tr/ //;
         }
     }
-    if ($line =~ /^#!/ && $. == 1) {
-		# translate #! line 
-		print "#!/usr/bin/perl -w\n";
-	}
-	elsif ($line =~ /^\s*#/ || $line =~ /^\s*$/) {
-		# Blank & comment lines can be passed unchanged
-		print $line;
-	}
     # Higher priorities:
     # sys.stdin.readlines()
-    elsif ($line =~ /(\s*)(\w*)\s*=\s*sys.stdin.readlines\(\)\s*$/) {
-		print "$1\@$2 = (<STDIN>);\n";
+    if ($line =~ /(\s*)(\w*)\s*=\s*sys.stdin.readlines\(\)\s*$/) {
+		print "$1\@$2 = (<STDIN>);";
 		++$array{$2};
 	}
 	# No initialisation is needed for array in perl.
 	elsif ($line =~ /^\s*(\w+)\s*=\s*\[\]\s*/){
 	    ++$array{$1};
+	    next if $comment eq "";
 	}  
     # Handling print & Subset 0:
     # print with "", just leave it to simple hanling.
 	elsif ($line =~ /^(\s*)print\s*"(.*)"\s*$/) {
 		# Python's print print a new-line character by default
 		# so we need to add it explicitly to the Perl print statement
-		print "$1print \"$2\\n\";\n";
+		print "$1print \"$2\\n\";";
 		$comma = "false";
 	}
 	# print with %, slightly different.
 	elsif ($line =~ /^(\s*)print\s*"(.*)"\s*%\s*(\w+)\s*$/) {
 		# print with %, format printing:
-		print "$1printf \(\"", $2, "\\n\", ", &translate_expression($3), "\);\n";
+		print "$1printf \(\"", $2, "\\n\", ", &translate_expression($3), "\);";
 		$comma = "false";
 	}
 	# the rest of print, only deal with line start with print. (No tail print)
@@ -80,17 +86,20 @@ sub process_line() {
 		$comma = "false";
 	}
 	elsif ($line =~ /^(\s*)sys.stdout.write\("(.*)"\)\s*$/) {
-		print "$1print \"$2\";\n";
+		print "$1print \"$2\";";
 	}
 	#subset 1:
 	elsif ($line =~ /^\s*(\w*)\s*[\+\-\*\/]?=.*$/) {
 	    # Handling multiple numaric value and variable assignment with +-*/
 	    # Handling += -= *= /= as well
+	    #print "here\;\n";
 	    chomp $line;
+	    $line =~ s/;$//;    # Remove the tail ';' in python code.
 	    $line =~ /^(\s*).*/;
 	    $start_space = $1;
 	    my @code = &translate_expression($line);
-	    print $start_space, "@code", ";", "\n";
+	    #print "#@code#\n";
+	    print $start_space, "@code", ";";
 		#print "\$"."$line;\n";
 	}
     # subset 2:
@@ -106,11 +115,12 @@ sub process_line() {
 		#print $condition[0], "\n";
 		$clause =~ s/(elif|else if)/elsif/;
 		my @statement = &translate_expression($condition[0]);
-		print "$start_space", "$clause \(", "@statement", "\) {\n";
+		print "$start_space", "$clause \(", "@statement", "\) {";
 		#print "$start_space", &translate_expression($condition[1]), ";\n";
 		if ($condition[1]) {
+		    print "\n";
 		    print &translate_line($condition[1], $start_space);
-		    print "$start_space", "}\n";
+		    print "$start_space", "}";
 		}
 		else {
 		    $indentation = "true";
@@ -122,7 +132,7 @@ sub process_line() {
 		# Handling else
 		chomp $line;
 		my $start_space = $1;
-		print "$start_space", "else {\n";
+		print "$start_space", "else {";
 		$indentation = "true";
         push @last_indentation, $start_space;
 	}
@@ -131,7 +141,7 @@ sub process_line() {
 	    $indentation = "true";
 	    push @last_indentation, $1;
 	    #my $num = $4 - 1;
-	    print "$1foreach \$$2 (", &translate_expression($3), "..", &second_range($4), ") {\n";
+	    print "$1foreach \$$2 (", &translate_expression($3), "..", &second_range($4), ") {";
 	}
 	# Handling break and continue
 	elsif ($line =~ /^(\s*)(break|continue)\s*$/) {
@@ -141,30 +151,32 @@ sub process_line() {
 	    else {
 	        $the_line = "next";
 	    }
-	    print "$1", "$the_line;\n";
+	    print "$1", "$the_line;";
 	}
 	# Subset 4:
 	# for-loop with sys.stdin
 	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*sys.stdin:\s*$/) {
 	    $indentation = "true";
 	    push @last_indentation, $1;
-	    print "$1foreach \$$2 (<STDIN>) {\n";
+	    print "$1foreach \$$2 (<STDIN>) {";
 	}
 	# append string
 	elsif ($line =~ /^(\s*)(\w+).append\((\w+)\)\s*$/) {
-	    print "$1push \@$2, \$$3;\n";
+	    print "$1push \@$2, \$$3;";
 	}
 	
 	
     
 	elsif ($line =~ /^\s*import.*/){
-	    ;
+	    next if $comment eq "";
 	}
 	#else handling:
 	else {
 		# Lines we can't translate are turned into comments
-		print "#$line\n";
+		print "#$line";
 	}
+	print $comment if $comment;
+	print "\n";
 }
 
 sub second_range(){
@@ -272,16 +284,16 @@ sub translate_print(){
 	# if python printing with ',' at the end of line
 	if ($line =~ /,$/) {
 	    $code[-1] =~ s/,$//;
-	    print "$start_space    ", $prefix, @code, ";", "\n";
+	    print "$start_space    ", $prefix, @code, ";";
 	    return;
 	}
 	# if print nothing, it ment to be print a new line.
 	elsif ($line eq "") {
-	    print "$start_space", $prefix, " \"\\n\";", "\n";
+	    print "$start_space", $prefix, " \"\\n\";";
 	    return;
 	}
 	# Else, print every expression.
-	print "$start_space", $prefix, "@code", ", \"\\n\";\n";
+	print "$start_space", $prefix, "@code", ", \"\\n\";";
 }
 
 sub handling_cast() {

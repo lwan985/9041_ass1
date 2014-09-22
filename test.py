@@ -2,10 +2,13 @@
     
 x = 1;
 y = 10;
+z = 0
 
 if x == 1:
     print 1
+    z += 1;
 if x > -1:
+    z += z
     print 1
 if x >= -1:
     print 1
@@ -43,7 +46,7 @@ y2y = y
 
 if x1 > 0 and y2y == 10:  x1 += y2y + 2;x1 -= y2y + 2 * 2;   x1 += a + 2
 print x1
-while x1 < 360: x1 = y2y + x1 + 7;  print x123;
+while x1 < 360: x1 = y2y + x1 + 7;  print x1;
 
 for i in range(0, 100):
     x1 -= 50 + i
