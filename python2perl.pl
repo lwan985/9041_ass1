@@ -32,6 +32,7 @@ sub process_line() {
 	}
 	# Else, should be an normal line, lots of choices.
     my $line = $_[0];
+    # Save the tail comment and print back at the end of whole process
     $line =~ s/(\s*#.*)$//;
     my $comment = $1;
     # Deal with the indentation problem
@@ -62,7 +63,7 @@ sub process_line() {
 	# No initialisation is needed for array in perl.
 	elsif ($line =~ /^\s*(\w+)\s*=\s*\[\]\s*/){
 	    ++$array{$1};
-	    next if $comment eq "";
+	    return if !$comment;
 	}  
     # Handling print & Subset 0:
     # print with "", just leave it to simple hanling.
@@ -168,7 +169,7 @@ sub process_line() {
 	
     
 	elsif ($line =~ /^\s*import.*/){
-	    next if $comment eq "";
+	    return if !$comment;
 	}
 	#else handling:
 	else {
