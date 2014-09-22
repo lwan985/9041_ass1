@@ -13,3 +13,13 @@ print a|b
 
 print a|b
 print a|b,
+
+print a&b       #just test for comment:
+
+while x1 < 360: x1 = y2y + x1 + 7;  print x1,
+
+
+for i in range(0, 100):
+    x1 -= 50 + i
+    print x1
+    if (x1 < 0): break

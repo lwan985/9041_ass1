@@ -57,18 +57,26 @@ sub process_line() {
 	# No initialisation is needed for array in perl.
 	elsif ($line =~ /^\s*(\w+)\s*=\s*\[\]\s*/){
 	    ++$array{$1};
-	}   
-    #Subset 0:
+	}  
+    # Handling print & Subset 0:
+    # print with "", just leave it to simple hanling.
 	elsif ($line =~ /^(\s*)print\s*"(.*)"\s*$/) {
 		# Python's print print a new-line character by default
 		# so we need to add it explicitly to the Perl print statement
-		#print "print \"$1\", \"\\n\";\n";
 		print "$1print \"$2\\n\";\n";
 		$comma = "false";
 	}
+	# print with %, slightly different.
 	elsif ($line =~ /^(\s*)print\s*"(.*)"\s*%\s*(\w+)\s*$/) {
 		# print with %, format printing:
 		print "$1printf \(\"", $2, "\\n\", ", &translate_expression($3), "\);\n";
+		$comma = "false";
+	}
+	# the rest of print, only deal with line start with print. (No tail print)
+	elsif ($line =~ /^\s*print/) {
+		# Handling multiple printing type
+		chomp $line;
+		&translate_print($line);
 		$comma = "false";
 	}
 	elsif ($line =~ /^(\s*)sys.stdout.write\("(.*)"\)\s*$/) {
@@ -85,27 +93,20 @@ sub process_line() {
 	    print $start_space, "@code", ";", "\n";
 		#print "\$"."$line;\n";
 	}
-#=pod
-	elsif ($line =~ /^(\s*)print\s*(\w*)\s*([\+\-\*\/]\s*(\w*)\s*)+$/) {
-		# Handling direct printing with variable
-		# Note the print format is slightly different comparing to that of single print.
-		#print "here\n";
-		chomp $line;
-		&translate_print($line);
-		$comma = "false";
-	}
-#=cut
     # subset 2:
     elsif ($line =~ /^\s*(if|while|elif|else if).*:/) {
 		# Handling if statement
 		chomp $line;
 		my @condition = split (':', $line);
+		#$condition[0] =~ s/(\s*)(if|while|elif|else if)\s*\(?(.+)\):/$3/;
 		$condition[0] =~ s/(\s*)(if|while|elif|else if)//;
 		my $start_space = $1;
 		my $clause = $2;
+		$condition[0] =~ s/^\s*\((.+)\)\s*$/$1/;
+		#print $condition[0], "\n";
 		$clause =~ s/(elif|else if)/elsif/;
-		my @if_statement = &translate_expression($condition[0]);
-		print "$start_space", "$clause \(", "@if_statement", "\) {\n";
+		my @statement = &translate_expression($condition[0]);
+		print "$start_space", "$clause \(", "@statement", "\) {\n";
 		#print "$start_space", &translate_expression($condition[1]), ";\n";
 		if ($condition[1]) {
 		    print &translate_line($condition[1], $start_space);
@@ -155,26 +156,7 @@ sub process_line() {
 	}
 	
 	
-    # Python print with , at the end of line
-	elsif ($line =~ /^(\s*)print\s*(.*),\s*$/) {
-	    #print "here!\,\n";
-	    my @variable = "";
-        @variable = &translate_expression($2) if ($2 ne "");
-		print "$1print ", "@variable;\n";
-		$comma = "true";
-	}
-	# just print variable or non directly
-	elsif ($line =~ /^(\s*)print\s*(.*)\s*$/) {
-	    #print "here!\n";
-	    my @variable = "";
-	    my $suffix = "\"\\n\";\n";
-	    if ($2 ne "") {
-            @variable = &translate_expression($2);
-            $suffix = ", \"\\n\";\n";
-        }
-		print "$1print @variable", $suffix;
-		$comma = "false";
-	}
+    
 	elsif ($line =~ /^\s*import.*/){
 	    ;
 	}
@@ -207,16 +189,18 @@ sub translate_line(){
     foreach (@expressions) {
         if ($_ =~ /^\s*print/) {
             $_ =~ s/^\s*//;
-            &translate_print($_, $start_space);
+            &translate_print($_, "$start_space    ");
         }
         else {
-            print "$start_space    ", &translate_expression($_), ";\n";
+            my @result = &translate_expression($_);
+            print "$start_space    ", "@result", ";\n";
         }
     }
 }
 
 sub translate_expression(){
     my $line = $_[0];
+    #print $line, "\n";
     # If there is no space between operators and variables or numeric values.  
     $line =~ s/([=+\-*\/|><%^&~]+)(\w)/ $1 $2/g;
     $line =~ s/\s+/ /g;     #Substitutes the concatenate spaces with one space.
@@ -234,6 +218,8 @@ sub translate_expression(){
 
 sub translate_single_expression() {
     my $expression = $_[0];
+    #print $expression, "\n";
+    $expression =~ s/,$//;
     if ($expression =~ /^(int|float|double)\((.*)\)/){
         #print $variable, "\n";
         $expression = &handling_cast($expression);
@@ -246,6 +232,15 @@ sub translate_single_expression() {
 	    else {
             $expression = "length(\$$1)";
         }
+    }
+    # continue, break
+    elsif ($expression =~ /^(break|continue)$/) {
+        $expression = "last" if $1 eq "break";
+        $expression = "next" if $1 eq "continue";
+	}
+    # and, or, not
+    elsif ($expression =~ /^(and|or|not)$/) {
+        ;
     }
     # variable
     elsif ($expression =~ /^[a-zA-Z]\w*$/) {
@@ -265,6 +260,7 @@ sub translate_single_expression() {
 
 sub translate_print(){
     my $line = $_[0];
+    #print "!$line!", "\n";
     my $start_space = "";
     if ($_[1]) {
         $start_space = $_[1];
@@ -273,7 +269,19 @@ sub translate_print(){
 	my $prefix = $1;
 	#print "!!!$prefix!!!", "\n";
 	my @code = &translate_expression($line);
-	print "$start_space    ", $prefix, @code, ", \"\\n\"", ";", "\n";
+	# if python printing with ',' at the end of line
+	if ($line =~ /,$/) {
+	    $code[-1] =~ s/,$//;
+	    print "$start_space    ", $prefix, @code, ";", "\n";
+	    return;
+	}
+	# if print nothing, it ment to be print a new line.
+	elsif ($line eq "") {
+	    print "$start_space", $prefix, " \"\\n\";", "\n";
+	    return;
+	}
+	# Else, print every expression.
+	print "$start_space", $prefix, "@code", ", \"\\n\";\n";
 }
 
 sub handling_cast() {
