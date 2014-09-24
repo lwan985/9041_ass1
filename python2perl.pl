@@ -4,6 +4,7 @@ $comma = "false";
 $no_need_newline = "false";
 %array = ();
 %hash = ();
+%file = ();
 
 if (@ARGV == 1) {
     #print $ARGV[0];
@@ -80,6 +81,19 @@ sub process_line() {
 		print "$a\@$b = \$$d =~ /$c/;";
 		++$array{$b};
 	}
+	# re.sub
+    elsif ($line =~ /^(\s*)(.*)re.sub\(\s*r\'(.+)\'\s*,\s*\'(.*)\'\s*,\s*(\w+)\)\s*$/) {
+        #print "here!!\n";
+        my $space = $1;
+        my $prefix_expression = $2;
+        my $first = $3;
+        my $second = $4;
+        my $object = $5;
+        my @result = &translate_expression($prefix_expression);
+        #print $expression[1], "\n";
+		print "$space", "\$$object =~ s/$first/$second/;";
+        print "\n$space", "@result", " \$$object;" if $prefix_expression;
+	}
 	# No initialisation is needed for array in perl.
 	elsif ($line =~ /^\s*(\w+)\s*=\s*\[\s*\]\s*/){
 	    ++$array{$1};
@@ -142,7 +156,7 @@ sub process_line() {
 	
 	#subset 1:
 	# Majority of assignment expression can be dealed with by the following lines.
-	elsif ($line =~ /^\s*([\w\[\]]*)\s*[\+\-\*\/]?=.*$/) {
+	elsif ($line =~ /^\s*([\w\[\]\.\(\)]*)\s*[\+\-\*\/]?=.*$/) {
 	    # Handling multiple numaric value and variable assignment with +-*/
 	    # Handling += -= *= /= as well
 	    #print "here\;\n";
@@ -243,7 +257,8 @@ sub process_line() {
 	#else handling:
 	else {
 		# Lines we can't translate are turned into comments
-		print "#$line";
+		chomp $line;
+		print "#$line   #match error, can't translate this line.\n";
 	}
 	print $comment if $comment;
 	if ($no_need_newline eq "true") {
@@ -275,9 +290,27 @@ sub handle_in() {
 	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*fileinput.input\(\):\s*$/) {
 	    print "$1while (\$$2 = <>) {";
 	}
-	else {
-	    print "#$line";
+	# for-loop with open()
+	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*open\(\"(.*)\"\):\s*$/) {
+	    my $handler_name = &do_open($3);
+	    print "$1while (\$$2 = <$handler_name>) {";
 	}
+	else {
+	    print "#$line   #for line error.";
+	}
+}
+
+sub do_open() {
+    my $open_file = $_[0];
+    my $handler_name = "F";
+    my $i = 1;
+    while ($file{$handler_name}) {
+        $handler_name = "F"."$i";
+        ++$i;
+    }
+    ++$file{$handler_name};
+    print "open $handler_name, \"$open_file\" or die \"\$0: can not $open_file: \$!\";\n";
+    return $handler_name;
 }
 
 sub second_range(){
@@ -390,15 +423,15 @@ sub translate_single_expression() {
         $expression = "\$".$expression;
     }
     # list and hash
-    elsif ($expression =~ /^(\w+)\[(\w+)\]/) {
+    elsif ($expression =~ /^(\w+)\[(.+)\]/) {
         #print "!$expression!\n";
         my $name = $1;
-        my $menber = $2;
+        my $menber_expression = &translate_single_expression($2);
         if ($array{$name}) {
             $expression =~ s/([a-zA-Z]\w*)/\$$1/g;
         }
         elsif ($hash{$name}) {
-            $expression = "\$$name\{\$$menber\}";
+            $expression = "\$$name\{$menber_expression\}";
         }
     }
     # python operator <>
