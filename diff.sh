@@ -9,13 +9,13 @@ do
     if [[ "$file" =~ .py$ ]]
     then
         file_name=`echo "$file" | sed 's/.py//'`
-        perl /home/ashnh/Desktop/COMP9041/Assignment_1/python2perl.pl < "$file_name.py" > "$file_name""_temp.pl" || continue
+        perl /home/ashnh/Desktop/COMP9041/Assignment_1/python2perl.pl < "$file_name.py" > "$file_name""_my.pl" || continue
         python "$file_name.py" < "/home/ashnh/Desktop/COMP9041/Assignment_1/subset_5/enrollments" > 1.txt || exit 0
-        perl "$file_name""_temp.pl" < "/home/ashnh/Desktop/COMP9041/Assignment_1/subset_5/enrollments" > 2.txt || exit 0
+        perl "$file_name""_my.pl" < "/home/ashnh/Desktop/COMP9041/Assignment_1/subset_5/enrollments" > 2.txt || exit 0
         if diff 1.txt 2.txt > /dev/null;
         then
             echo "$file translation SUCCESSFUL!"
-            rm "$file_name""_temp.pl" || continue
+            rm "$file_name""_my.pl" || continue
         else
             echo "$file Fail!"
         fi
