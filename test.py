@@ -54,8 +54,24 @@ for i in range(0, 100):
     print x1
     if (x1 < 0):      break                     
 
-s = "ashnh"
+print "ashnh is a pure genius!!!"
+s = "ashnh is a pure genius!!!"
+print s;
 
 for i in range(0, 100): x1 -= 50 + i;print x1;  sys.stdout.write(s);     sys.stdout.write("haha");#comment!
+a ="a"
+s= "s"
+h =     "h"
+n="n"
+
+list1 = []
+list1.append(a)
+list1.append(s)
+list1.append(h)
+list1.append(n)
+list1.append(h)
+print "\n"
+print          list1[-1]            ;
+
 
 

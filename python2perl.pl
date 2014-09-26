@@ -113,7 +113,7 @@ sub process_line() {
             }
         }
 	}
-=pod
+#=pod
 	# re.search
     elsif ($line =~ /(\s*)(\w*)\s*=\s*re.search\((.+),\s*(.+)\)\s*$/) {
         my $a = $1;
@@ -126,7 +126,7 @@ sub process_line() {
 		print "$a\@$b = \$$d =~ /$c/g;";
 		++$array{$b};
 	}
-=cut
+#=cut
 	# No initialisation is needed for array in perl.
 	elsif ($line =~ /^\s*(\w+)\s*=\s*\[\s*\]\s*/){
 	    ++$array{$1};
@@ -297,7 +297,7 @@ sub process_line() {
 	}
 	# Subset 4:
 	# append string
-	elsif ($line =~ /^(\s*)(\w+).append\((\w+)\)\s*$/) {
+	elsif ($line =~ /^(\s*)(\w+).append\((.+)\)\s*$/) {
 	    print "$1push \@$2, \$$3;";
 	}
 	# Subset 5:
@@ -361,7 +361,10 @@ sub handle_in() {
 }
 
 sub do_open() {
-    my $open_file = &translate_single_expression($_[0]);
+    my @command = split (',', $_[0]);
+    my $mode = "";
+    $mode = " ".$command[1]."," if $command[1];
+    my $open_file = &translate_single_expression($command[0]);
     my $file_name = $open_file;
     $file_name =~ s/\"//g;
     my $handler_name = "F";
@@ -372,7 +375,7 @@ sub do_open() {
         ++$i;
     }
     ++$file{$handler_name};
-    print "open $handler_name, $open_file or die \"\$0: can not open $file_name: \$!\";";
+    print "open $handler_name,", $mode, " $open_file or die \"\$0: can not open $file_name: \$!\";";
     print "\n" if !$_[1];
     return $handler_name;
 }
@@ -431,17 +434,26 @@ sub translate_string() {
 sub translate_expression() {
     my $line = $_[0];
     #print "^$line^\n";
-    #if ($line =~ /\".*\"/) {
-    #    return &translate_string($line);
-    #}
-    # If there is no space between operators and variables or numeric values.  
-    #print "$line\n";
+    if ($line =~ /\".*\"/) {
+        $line =~ s/\"/\$!!\$\"/;
+        my @parts = split ('\$!!\$', $line);
+        my @string = &translate_expression($parts[0]);
+        $string[@string] = &translate_single_expression($parts[1]);
+        return @string;
+    }
     # join should only have 2 arguments.
-    if ($line =~ /(.+)\.join\((.+)\)/) {
+    elsif ($line =~ /(.+)\.join\((.+)\)/) {
         my $result = "join\(".&translate_single_expression($1).", ".&translate_single_expression($2)."\)";
         return $result;
     }
-    $line =~ s/([=+\-*\/|><%^&~,]+)(\w)/ $1 $2/g;
+    # list[]
+    elsif ($line =~ /^\w+\[.+\]$/) {
+        my @string;
+        $string[0] = &translate_single_expression($line);
+        return @string;
+    }
+    # If there is no space between operators and variables or numeric values.
+    $line =~ s/([=+\-*\/|><%^&~,!]+)(\w?)/ $1 $2/g;
     $line =~ s/\s+/ /g;     #Substitutes the concatenate spaces with one space.
     $line =~ s/^\ //;       #Delete the starting space.
     $line =~ s/\ $//;       #Delete the ending space.
@@ -595,14 +607,17 @@ sub translate_nested() {
 sub translate_print(){
     my $line = $_[0];
     #print "!$line!", "\n";
+    $line =~ s/\s*;?$//;
     my $start_space = "";
     if ($_[1]) {
         $start_space = $_[1];
     }
-    $line =~ s/(^\s*print\s*)//;
+    $line =~ s/(^\s*print\s)\s*//;
 	my $prefix = $1;
 	#print "!!!$prefix!!!", "\n";
+	#print "$line\n";
 	my @code = &translate_expression($line);
+	#print "~~@code~~\n";
 	# if python printing with ',' at the end of line
 	if ($line =~ /,$/) {
 	    $code[-1] =~ s/,$//;
