@@ -73,10 +73,17 @@ sub process_line() {
 		return;
 	}
     # Higher priorities:
-    # sys.stdin.readlines()
-    elsif ($line =~ /(\s*)(\w*)\s*=\s*sys.stdin.readlines\(\)\s*$/) {
-		print "$1\@$2 = (<STDIN>);";
+    # xxx.readlines()
+    elsif ($line =~ /(\s*)(\w*)\s*=\s*(.+)\.readlines\(\)\s*$/) {
+        my $result = $3;
+        $result = "STDIN" if $result eq "sys.stdin";
+		print "$1\@$2 = (<$result>);";
 		++$array{$2};
+	}
+	# normal open()
+    elsif ($line =~ /(\s*)(\w*)\s*=\s*open\((.*)\)\s*$/) {
+        print $1;
+        &do_open($3, $2);
 	}
 	# re.match
     elsif ($line =~ /(\s*)(\w*)\s*=\s*re.match\((.+),\s*(.+)\)\s*$/) {
@@ -91,22 +98,35 @@ sub process_line() {
 		++$array{$b};
 	}
 	# re.sub
-    elsif ($line =~ /^(\s*)(.*)re.sub\(\s*r\'(.+)\'\s*,\s*\'(.*)\'\s*,\s*(\w+)\)\s*$/) {
-        #print "here!!\n";
+    elsif ($line =~ /^(\s*)(.*)re.sub\(\s*r\'(.+)\'\s*,\s*\'(.*)\'\s*,\s*(.+)\)\s*$/) {
         my $space = $1;
         my $prefix_expression = $2;
         my $first = $3;
         my $second = $4;
-        my $object = $5;
+        my $object = &translate_single_expression($5);
         my @result = &translate_expression($prefix_expression);
         #print $expression[1], "\n";
-		print "$space", "\$$object =~ s/$first/$second/g;";
+		print "$space", "$object =~ s/$first/$second/g;";
 		if ($prefix_expression) {
-		    if ($result[0] ne "\$$object") {
-                print "\n$space", "@result", " \$$object;"
+		    if ($result[0] ne "$object") {
+                print "\n$space", "@result", " $object;"
             }
         }
 	}
+=pod
+	# re.search
+    elsif ($line =~ /(\s*)(\w*)\s*=\s*re.search\((.+),\s*(.+)\)\s*$/) {
+        my $a = $1;
+        my $b = $2;
+        my $c = $3;
+        my $d = $4;
+        $c =~ s/^r\'//;
+        $c =~ s/\'$//;
+        #print $expression[1], "\n";
+		print "$a\@$b = \$$d =~ /$c/g;";
+		++$array{$b};
+	}
+=cut
 	# No initialisation is needed for array in perl.
 	elsif ($line =~ /^\s*(\w+)\s*=\s*\[\s*\]\s*/){
 	    ++$array{$1};
@@ -124,7 +144,7 @@ sub process_line() {
         $no_need_newline = "true";
 	}
 	# split('')
-	elsif ($line =~ /^(\s*)(\w+)\s*=\s*(\w+)\.split\('(.)'\)\s*$/) {
+	elsif ($line =~ /^(\s*)(\w+)\s*=\s*(\w+)\.split\('(.*)'\)\s*$/) {
 	    my $a = $1;
 	    my $b = $2;
 	    my $c = $3;
@@ -210,7 +230,17 @@ sub process_line() {
 		$condition[0] =~ s/^\s*\((.+)\)\s*$/$1/;
 		#print $condition[0], "\n";
 		$clause =~ s/(elif|else if)/elsif/;
-		my @statement = &translate_expression($condition[0]);
+		my @statement;
+		#print "$condition[0]\n";
+		if ($condition[0] =~ /^(.+)\s*is not None$/) {
+		    #print "$1\n";
+		    @statement = &translate_expression($1);
+		    #print "!!@statement!!\n";
+		    @statement = "!".$statement[0];
+		}
+		else {
+		    @statement = &translate_expression($condition[0]);
+	    }
 		print "$start_space", "$clause \(", "@statement", "\) {";
 		#print "$start_space", &translate_expression($condition[1]), ";\n";
 		# Little trick, in case the condition[1] is only spaces (\s*).
@@ -321,7 +351,7 @@ sub handle_in() {
 	    print "$1while (\$$2 = <>) {";
 	}
 	# for-loop with open()
-	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*open\(\"(.*)\"\):\s*$/) {
+	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*open\((.*)\):\s*$/) {
 	    my $handler_name = &do_open($3);
 	    print "$1while (\$$2 = <$handler_name>) {";
 	}
@@ -331,15 +361,19 @@ sub handle_in() {
 }
 
 sub do_open() {
-    my $open_file = $_[0];
+    my $open_file = &translate_single_expression($_[0]);
+    my $file_name = $open_file;
+    $file_name =~ s/\"//g;
     my $handler_name = "F";
+    $handler_name = $_[1] if $_[1];
     my $i = 1;
     while ($file{$handler_name}) {
         $handler_name = "F"."$i";
         ++$i;
     }
     ++$file{$handler_name};
-    print "open $handler_name, \"$open_file\" or die \"\$0: can not $open_file: \$!\";\n";
+    print "open $handler_name, $open_file or die \"\$0: can not open $file_name: \$!\";";
+    print "\n" if !$_[1];
     return $handler_name;
 }
 
@@ -348,10 +382,10 @@ sub second_range(){
     if (@result == 1 && $result[-1] eq "\@ARGV") {
         ;
     }
-    elsif (@result == 1) {
+    elsif (@result == 1 && !$result[-1] =~ /^\$/) {
         --$result[-1];
     }
-    elsif($result[-2] eq "+" && $result[-1] == 1) {
+    elsif($result[-2] && $result[-2] eq "+" && $result[-1] == 1) {
         $result[-2] = "";
         $result[-1] = "";
     }
@@ -396,7 +430,7 @@ sub translate_string() {
 
 sub translate_expression() {
     my $line = $_[0];
-    #print $line, "\n";
+    #print "^$line^\n";
     #if ($line =~ /\".*\"/) {
     #    return &translate_string($line);
     #}
@@ -441,14 +475,25 @@ sub translate_single_expression() {
             $expression = "length(\$$1)";
         }
     }
+    # string ".*"
+    elsif ($expression =~ /\".*\"/) {
+        #$expression =~ s/^\"//;
+        #$expression =~ s/\"$//;
+    }
     # sys.*
     elsif ($expression =~ /^sys\..+$/) {
         $expression = &handling_sys($expression);
 	}
     # .group
-    elsif ($expression =~ /^(\w*)\.group\((\d)\)$/) {
-        my $index = $2 - 1;
-        $expression = "\$$1\[$index\]";
+    elsif ($expression =~ /^(\w*)\.group\((\d*)\)$/) {
+        if ($2 == 0) {
+            $expression = "\@$1";
+        }
+        else {
+            my $index = "";
+            $index = $2 - 1 if $2 ne "";
+            $expression = "\$$1\[$index\]";
+        }
 	}
     # continue, break
     elsif ($expression =~ /^(break|continue)$/) {

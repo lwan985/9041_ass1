@@ -44,7 +44,7 @@ print a&b       #just test for comment:
 x1 = x
 y2y = y
 
-if x1 > 0 and y2y == 10:  x1 += y2y + 2;x1 -= y2y + 2 * 2;   x1 += a + 2
+if x1 > 0 and y2y == 10:  x1 += y2y + 2;x1 -= y2y + 2 * 2;   x1 += a + 2**2
 print x1
 while x1 < 360: 
     x1 = y2y + x1 + 7;  print x1;   #comment!!!!!!!!
@@ -57,15 +57,5 @@ for i in range(0, 100):
 s = "ashnh"
 
 for i in range(0, 100): x1 -= 50 + i;print x1;  sys.stdout.write(s);     sys.stdout.write("haha");#comment!
-
-
-
-
-
-
-
-
-
-
 
 
