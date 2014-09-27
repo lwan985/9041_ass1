@@ -6,6 +6,11 @@ y = 10
 print -b
 print ~b
 
+x = 2
+x1 = x-1+1*1**1- 1+ 1* 1** 1-x+(x*x)**x;
+print x1
+
+
 if (x <> y) == 1:
     print 1
     

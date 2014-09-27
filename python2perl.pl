@@ -5,6 +5,7 @@ $no_need_newline = "false";
 %array = ();
 %hash = ();
 %file = ();
+%function = ();
 
 if (@ARGV == 1) {
     #print $ARGV[0];
@@ -67,6 +68,8 @@ sub process_line() {
             $count2 = $last_indentation[-1] =~ tr/ //;
         }
     }
+    # remove the last ;
+    $line =~ s/;(\s*)$/$1/;
     if ($line =~ /^\s*$/) {
 		# Blank lines can be passed unchanged
 		print $line;
@@ -127,10 +130,15 @@ sub process_line() {
 		++$array{$b};
 	}
 #=cut
-	# No initialisation is needed for array in perl.
+	# No initialisation is needed for array in perl if the  array is empty.
 	elsif ($line =~ /^\s*(\w+)\s*=\s*\[\s*\]\s*/){
 	    ++$array{$1};
 	    return if !$comment;
+	}
+	# initialisation array.
+	elsif ($line =~ /^(\s*)(\w+)\s*=\s*\[([\w,]+)\]\s*/){
+	    ++$array{$2};
+	    print "$1\@$2 = \($3\);";
 	}
 	# Initialisation of hash could be implemented in perl.
 	elsif ($line =~ /^\s*(\w+)\s*=\s*{\s*}\s*/){
@@ -183,6 +191,7 @@ sub process_line() {
 		&translate_print($line);
 		$comma = "false";
 	}
+	# sys.stdout.write()
 	elsif ($line =~ /^(\s*)sys.stdout.write\("(.*)"\)\s*$/) {
 		print "$1print \"$2\";";
 	}
@@ -301,7 +310,34 @@ sub process_line() {
 	    print "$1push \@$2, \$$3;";
 	}
 	# Subset 5:
-	
+	# pop
+	elsif ($line =~ /^(\s*)(\w+).pop\(\)\s*$/) {
+	    print "$1pop \@$2;";
+	}
+	# function definition
+	elsif ($line =~ /^(\s*)def\s+(\w+)\((.*)\):\s*$/) {
+	    print $1, "sub $2\(\) {";
+	    if ($3) {
+	        my @arguments = split (',', $3);
+	        foreach $i (0..@arguments-1) {
+	            print "\n$1    ", &translate_single_expression($arguments[$i]),
+	            " = \$_\[$i\]", ";";
+	        }
+	    }
+	    ++$function{$2};
+	    $indentation = "true";
+        push @last_indentation, $1;
+	}
+	# function calling
+	elsif ($line =~ /^(\s*)(\w+)\((.*)\)\s*$/ && $function{$2}) {
+	    print $1, "&$2\(";
+	    my @arguments = split (',', $3);
+	        foreach $i (0..@arguments-1) {
+	            print &translate_single_expression($arguments[$i]);
+	            print ", " if $i != @arguments-1;
+	        }
+        print "\);";
+	}
 	
 	
     
@@ -447,17 +483,18 @@ sub translate_expression() {
         return $result;
     }
     # list[]
-    elsif ($line =~ /^\w+\[.+\]$/) {
+    elsif ($line =~ /^\w+\[[^,.]+\]$/) {
         my @string;
         $string[0] = &translate_single_expression($line);
         return @string;
     }
     # If there is no space between operators and variables or numeric values.
-    $line =~ s/([=+\-*\/|><%^&~,!]+)(\w?)/ $1 $2/g;
+    #print "!!$line!!\n";
+    $line =~ s/(\w+)([=+\-*\/|><%^&~,!]+)/$1 $2 /g;
     $line =~ s/\s+/ /g;     #Substitutes the concatenate spaces with one space.
     $line =~ s/^\ //;       #Delete the starting space.
     $line =~ s/\ $//;       #Delete the ending space.
-    #print "$line\n";
+    #print ">>$line<<\n";
     my @string = split (' ', $line);
     # Lots of possibilities.
     return &translate_single_expression($string[0]) if @string == 1;
@@ -470,7 +507,8 @@ sub translate_expression() {
 sub translate_single_expression() {
     my $expression = $_[0];
     #print $expression, "\n";
-    $expression =~ s/,$//;
+    $expression =~ s/\s*,?$//;
+    $expression =~ s/^\s*//;
     if ($expression =~ /^(int|float|double)\((.*)\)/){
         #print $variable, "\n";
         $expression = &handling_cast($expression);
@@ -538,8 +576,6 @@ sub translate_single_expression() {
         #print "^!^!$expression!^!^\n";
     }
     # multiple list and hash
-    #$regex = '\('.'(?:[^()]|\(' x $depth . '[^()]*' . '\))*' x $depth .'\)';
-    #/((?>[^()]+|/((?<DEPTH>)|/)(?<-DEPTH>))*(?(DEPTH)(?!))/)
     elsif ($expression =~ /^(\w+)\[.+\]\[.+\]+$/) {
         #print "!$expression!\n";
         my $name = $1;
@@ -612,7 +648,7 @@ sub translate_print(){
     if ($_[1]) {
         $start_space = $_[1];
     }
-    $line =~ s/(^\s*print\s)\s*//;
+    $line =~ s/(^\s*print\s*)//;
 	my $prefix = $1;
 	#print "!!!$prefix!!!", "\n";
 	#print "$line\n";
@@ -627,6 +663,11 @@ sub translate_print(){
 	# if print nothing, it ment to be print a new line.
 	elsif ($line eq "") {
 	    print "$start_space", $prefix, " \"\\n\";";
+	    return;
+	}
+	# print list should be treated specially.
+    elsif (@code == 1 && $code[0] =~ /^\@/) {
+	    print "$start_space", $prefix, "\"@code\\n\";";
 	    return;
 	}
 	# Else, print the print expression.
