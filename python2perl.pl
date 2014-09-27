@@ -338,6 +338,10 @@ sub process_line() {
 	        }
         print "\);";
 	}
+	# function return
+	elsif ($line =~ /(\s*)return\s*(.*)/) {
+        print "$1return ", &translate_expression($2), ";";
+	}
 	
 	
     
@@ -488,6 +492,19 @@ sub translate_expression() {
         $string[0] = &translate_single_expression($line);
         return @string;
     }
+    # function calling with return value
+	elsif ($line =~ /^(\s*)(\w+\s*=\s*)(\w+)\((.*)\)\s*$/ && $function{$3}) {
+	    #print "here\n";
+	    my @string = &translate_expression($2);
+	    push @string, "&$3\(";
+	    my @arguments = split (',', $4);
+	        foreach $i (0..@arguments-1) {
+	            $string[-1] .= &translate_single_expression($arguments[$i]);
+	            $string[-1] .= ", " if $i != @arguments-1;
+	        }
+        $string[-1] .= "\)";
+        return @string;
+	}
     # If there is no space between operators and variables or numeric values.
     #print "!!$line!!\n";
     $line =~ s/(\w+)([=+\-*\/|><%^&~,!]+)/$1 $2 /g;
