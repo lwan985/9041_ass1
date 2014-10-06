@@ -389,7 +389,7 @@ sub handle_in() {
 	    print "$1foreach \$$2 (", &translate_expression($3), "..", &second_range($4), ") {";
     }
     # for-loop with in range() with one arguments.
-	if ($line =~ /^(\s*)for\s*(\w+)\s*in\s*range\((\w+)\):.*$/) {
+	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*range\((\w+)\):.*$/) {
 	    print "$1foreach \$$2 (0", "..", &second_range($3), ") {";
     }
     # for-loop with sys.stdin
@@ -539,10 +539,10 @@ sub translate_expression() {
 	}
     # If there is no space between operators and variables or numeric values.
     #print "!!$line!!\n";
-    $line =~ s/([\w\)]+)([=+\-*\/|><%^&~,!]+)/$1 $2 /g;
-    $line =~ s/~/~ /g;
+    $line =~ s/([\w\)]+)([=+\-*\/|><%^&~,!]+)/$1 $2 /g; #Separate each notation with space
+    $line =~ s/([~\-+])(\w)/$1 $2/g;      #such like ~b, -b, +b;
     $line =~ s/\s+/ /g;     #Substitutes the concatenate spaces with one space.
-    $line =~ s/\ \(/\(/g;
+    $line =~ s/\s+\(/\(/g;   #In case there are spaces between function name and ().
     $line =~ s/^\ //;       #Delete the starting space.
     $line =~ s/\ $//;       #Delete the ending space.
     #print ">>$line<<\n";
