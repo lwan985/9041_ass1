@@ -30,7 +30,6 @@ if ($indentation eq "true") {
         }
     }
 }
-#print "print \"\\n\";\n" if $comma eq "true";
 
 
 sub process_line() {
@@ -116,7 +115,6 @@ sub process_line() {
             }
         }
 	}
-#=pod
 	# re.search
     elsif ($line =~ /(\s*)(\w*)\s*=\s*re.search\((.+),\s*(.+)\)\s*$/) {
         my $a = $1;
@@ -129,7 +127,6 @@ sub process_line() {
 		print "$a\@$b = \$$d =~ /$c/g;";
 		++$array{$b};
 	}
-#=cut
 	# No initialisation is needed for array in perl if the  array is empty.
 	elsif ($line =~ /^\s*(\w+)\s*=\s*\[\s*\]\s*/){
 	    ++$array{$1};
@@ -192,8 +189,12 @@ sub process_line() {
 		$comma = "false";
 	}
 	# sys.stdout.write()
-	elsif ($line =~ /^(\s*)sys.stdout.write\("(.*)"\)\s*$/) {
+	elsif ($line =~ /^(\s*)sys.stdout.write\s*\("(.*)"\)\s*$/) {
 		print "$1print \"$2\";";
+	}
+	# sys.stdout.write()
+	elsif ($line =~ /^(\s*)sys.stdout.write\s*\((.*)\)\s*$/) {
+		print "$1print ", &translate_single_expression($2), ";";
 	}
 	
 	#subset 1:
@@ -249,6 +250,25 @@ sub process_line() {
 		}
 		else {
 		    @statement = &translate_expression($condition[0]);
+		    #$n = @statement;
+		    #print $n, "\n";
+		    if (@statement != 1){
+		        foreach $i (1..@statement-1) {
+		            $statement[0] .= " ".$statement[$i];
+		            delete $statement[$i];
+		        }
+		    }
+		    #print ">@statement<", "\n";
+		    if ($statement[0] =~ /^[\"\'].+[\"\']\s*(==|!=|>|<|>=|<=|<>)\s*.+$/ ||
+		        $statement[0] =~ /^.+\s*(==|!=|>|<|>=|<=|<>)\s*\'.+\'$/) {
+		        $statement[0] =~ s/==/eq/;
+		        $statement[0] =~ s/(!=|<>)/ne/;
+		        $statement[0] =~ s/>=/ge/;
+		        $statement[0] =~ s/<=/le/;
+		        $statement[0] =~ s/>/gt/;
+		        $statement[0] =~ s/</lt/;
+		        
+		    }
 	    }
 		print "$start_space", "$clause \(", "@statement", "\) {";
 		#print "$start_space", &translate_expression($condition[1]), ";\n";
@@ -315,7 +335,7 @@ sub process_line() {
 	    print "$1pop \@$2;";
 	}
 	# function definition
-	elsif ($line =~ /^(\s*)def\s+(\w+)\((.*)\):\s*$/) {
+	elsif ($line =~ /^(\s*)def\s+(\w+)\s*\((.*)\):\s*$/) {
 	    print $1, "sub $2\(\) {";
 	    if ($3) {
 	        my @arguments = split (',', $3);
@@ -329,7 +349,7 @@ sub process_line() {
         push @last_indentation, $1;
 	}
 	# function calling
-	elsif ($line =~ /^(\s*)(\w+)\((.*)\)\s*$/ && $function{$2}) {
+	elsif ($line =~ /^(\s*)(\w+)\s*\((.*)\)\s*$/ && $function{$2}) {
 	    print $1, "&$2\(";
 	    my @arguments = split (',', $3);
 	        foreach $i (0..@arguments-1) {
@@ -364,9 +384,13 @@ sub process_line() {
 
 sub handle_in() {
     my $line = $_[0];
-    # for-loop with in range()
+    # for-loop with in range() with two arguments.
 	if ($line =~ /^(\s*)for\s*(\w+)\s*in\s*range\((.+),\s*(.+)\):.*$/) {
 	    print "$1foreach \$$2 (", &translate_expression($3), "..", &second_range($4), ") {";
+    }
+    # for-loop with in range() with one arguments.
+	if ($line =~ /^(\s*)for\s*(\w+)\s*in\s*range\((\w+)\):.*$/) {
+	    print "$1foreach \$$2 (0", "..", &second_range($3), ") {";
     }
     # for-loop with sys.stdin
     elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*sys.stdin:\s*$/) {
@@ -377,6 +401,7 @@ sub handle_in() {
         my $result = &handling_sys($3);
         print "$1foreach \$$2 \($result\) {";
     }
+    
     # for-loop with variable
     elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*(\w+):\s*$/) {
 	    print "$1foreach \$$2 (\@$3) {";
@@ -385,6 +410,11 @@ sub handle_in() {
     elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*sorted\(([\w\[\]]+)\.keys\(\)\):\s*$/) {
         my $result = &translate_single_expression($3);
 	    print "$1foreach \$$2 (sort keys $result) {";
+	}
+	# for-loop with key
+    elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*([\w\[\]]+)\.keys\(\):\s*$/) {
+        my $result = &translate_single_expression($3);
+	    print "$1foreach \$$2 (keys $result) {";
 	}
 	# for-loop with fileinput.input()
 	elsif ($line =~ /^(\s*)for\s*(\w+)\s*in\s*fileinput.input\(\):\s*$/) {
@@ -473,18 +503,20 @@ sub translate_string() {
 
 sub translate_expression() {
     my $line = $_[0];
+    # join should only have 2 arguments.
+    if ($line =~ /(.+)\.join\((.+)\)/) {
+        my $result = "join\(".&translate_single_expression($1).", ".&translate_single_expression($2)."\)";
+        return $result;
+    }
     #print "^$line^\n";
-    if ($line =~ /\".*\"/) {
+    # Deal with string.
+    elsif ($line =~ /\".*\"/ || $line =~ /\'.*\'/) {
         $line =~ s/\"/\$!!\$\"/;
+        $line =~ s/\'/\$!!\$\'/;
         my @parts = split ('\$!!\$', $line);
         my @string = &translate_expression($parts[0]);
         $string[@string] = &translate_single_expression($parts[1]);
         return @string;
-    }
-    # join should only have 2 arguments.
-    elsif ($line =~ /(.+)\.join\((.+)\)/) {
-        my $result = "join\(".&translate_single_expression($1).", ".&translate_single_expression($2)."\)";
-        return $result;
     }
     # list[]
     elsif ($line =~ /^\w+\[[^,.]+\]$/) {
@@ -507,8 +539,10 @@ sub translate_expression() {
 	}
     # If there is no space between operators and variables or numeric values.
     #print "!!$line!!\n";
-    $line =~ s/(\w+)([=+\-*\/|><%^&~,!]+)/$1 $2 /g;
+    $line =~ s/([\w\)]+)([=+\-*\/|><%^&~,!]+)/$1 $2 /g;
+    $line =~ s/~/~ /g;
     $line =~ s/\s+/ /g;     #Substitutes the concatenate spaces with one space.
+    $line =~ s/\ \(/\(/g;
     $line =~ s/^\ //;       #Delete the starting space.
     $line =~ s/\ $//;       #Delete the ending space.
     #print ">>$line<<\n";
@@ -624,6 +658,14 @@ sub translate_single_expression() {
             #print "!$expression!\n";
         }
     }
+    # with '('
+    elsif ($expression =~ /^\((.+)/) {
+        $expression = "(".&translate_single_expression($1);
+    }
+    # with ')'
+    elsif ($expression =~ /^(.+)\)/) {
+        $expression = &translate_single_expression($1).")";
+    }
     # python operator <>
     elsif ($expression eq "<>") {
         $expression = "<=>";
@@ -677,6 +719,11 @@ sub translate_print(){
 	    print "$start_space", $prefix, @code, ";";
 	    return;
 	}
+	# if python printing have '(' and ')'
+	if ($line =~ /\(.*\)/) {
+	    print "$start_space", $prefix, "\(@code", ", \"\\n\"\);";
+	    return;
+	}
 	# if print nothing, it ment to be print a new line.
 	elsif ($line eq "") {
 	    print "$start_space", $prefix, " \"\\n\";";
@@ -714,7 +761,8 @@ sub handling_cast() {
 
 sub handling_sys() {
     my $line = $_[0];
-    if ($line eq "sys.stdin.readline\(\)") {
+    if ($line =~ /sys.stdin.readline/) {
+        #print "here\n";
         $line = "\<STDIN\>";
     }
     elsif ($line =~ /^\s*sys.argv\[(.*)\]:?\s*/) {
@@ -734,13 +782,3 @@ sub handling_sys() {
     }
 	return $line;
 }
-
-
-
-
-
-
-
-
-
-

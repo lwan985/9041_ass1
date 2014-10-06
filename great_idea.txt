@@ -54,3 +54,11 @@ abc = []
 		n = cfn[course[ba]][first_name]
 		m = cfn[abc[cfn[ha]]][first_name][course[cfn[abc[10]]][abc[10]]]
 
+
+if "a" == "a": print "a1"
+if "a" > "a": print "not a2"
+if "a" < "a": print "not a3"
+if "a" >= "a": print "a4"
+if "a" <= "a": print "a5"
+if "a" != "a": print "not a6"
+if "a" <> "a": print "not a7"
